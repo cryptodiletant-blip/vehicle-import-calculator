@@ -4,6 +4,7 @@ import anthropic
 import os
 import json
 import re
+import base64
 
 app = Flask(__name__)
 CORS(app)
@@ -11,6 +12,24 @@ CORS(app)
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 if ANTHROPIC_API_KEY:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+def detect_image_type(base64_string):
+    """Detect image type from base64 data"""
+    if base64_string.startswith('/9j/') or base64_string.startswith('iVBOR'):
+        # Check magic bytes
+        try:
+            img_data = base64.b64decode(base64_string[:20])
+            if img_data.startswith(b'\xff\xd8\xff'):
+                return 'image/jpeg'
+            elif img_data.startswith(b'\x89PNG'):
+                return 'image/png'
+            elif img_data.startswith(b'RIFF') and b'WEBP' in img_data:
+                return 'image/webp'
+            elif img_data.startswith(b'GIF'):
+                return 'image/gif'
+        except:
+            pass
+    return 'image/jpeg'  # default fallback
 
 def calculate_bpm(co2, year, fuel_type):
     age = 2025 - year
@@ -31,11 +50,16 @@ def home():
 def analyze_vehicle():
     if not client: return jsonify({'error':'API Key not configured'}), 500
     try:
-        img = request.json.get('image','').split(',')[1] if ',' in request.json.get('image','') else request.json.get('image','')
+        img_full = request.json.get('image','')
+        img = img_full.split(',')[1] if ',' in img_full else img_full
+        
+        # Detect correct media type
+        media_type = detect_image_type(img)
+        
         msg = client.messages.create(model="claude-sonnet-4-20250514", max_tokens=1000,
             messages=[{"role":"user","content":[
-                {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":img}},
-                {"type":"text","text":'JSON: {"marca":"","model":"","an_fabricatie":"2020","motor_capacitate":"2.0L","combustibil":"benzina","emisii_co2":"180"}'}]}])
+                {"type":"image","source":{"type":"base64","media_type":media_type,"data":img}},
+                {"type":"text","text":'Analizează vehiculul și returnează doar JSON fără text suplimentar: {"marca":"","model":"","an_fabricatie":"2020","motor_capacitate":"2.0L","combustibil":"benzina","emisii_co2":"180"}'}]}])
         txt = re.sub(r'^```json\s*|\s*```$','',msg.content[0].text.strip(),flags=re.MULTILINE)
         return jsonify(json.loads(txt))
     except Exception as e: return jsonify({'error':str(e)}), 500
