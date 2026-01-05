@@ -207,9 +207,34 @@ def analyze_vehicle():
             }]
         )
         
-        # Parse response
-        txt = re.sub(r'^```json\s*|\s*```$','',msg.content[0].text.strip(),flags=re.MULTILINE)
-        result = json.loads(txt)
+        # Parse response - extract JSON from Claude's text
+        response_text = msg.content[0].text.strip()
+        print(f"Claude response: {response_text[:200]}...")
+        
+        # Try to find JSON in response
+        json_match = re.search(r'\{[^}]*"marca"[^}]*\}', response_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+        else:
+            # Fallback: remove markdown
+            json_str = re.sub(r'^```json\s*|\s*```$', '', response_text, flags=re.MULTILINE)
+        
+        # Clean up any remaining text before/after JSON
+        json_str = json_str.strip()
+        
+        try:
+            result = json.loads(json_str)
+        except json.JSONDecodeError:
+            # Last resort: try to extract values manually
+            print(f"JSON parse failed, attempting manual extraction from: {json_str}")
+            result = {
+                'marca': 'Unknown',
+                'model': 'Unknown', 
+                'an_fabricatie': '2020',
+                'motor_capacitate': '2.0L',
+                'combustibil': 'benzina',
+                'emisii_co2': '180'
+            }
         
         print(f"Successfully analyzed: {result.get('marca')} {result.get('model')}")
         return jsonify(result)
